@@ -2,641 +2,659 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
-import joblib
 
+from datetime import datetime
+
+from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
-from sklearn.metrics import silhouette_score
-
+from sklearn.metrics import (
+    silhouette_score,
+    davies_bouldin_score,
+    calinski_harabasz_score
+)
 
 # ============================================================
 # PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
-    page_title="K-Means + PCA Explorer | A.Masmi",
-    page_icon="📊",
+    page_title="AI Customer Clustering & PCA | A. Masmi",
+    page_icon="🧩",
     layout="wide"
 )
 
+now = datetime.now()
+session_date = now.strftime("%B %d, %Y")
+session_time = now.strftime("%I:%M %p")
 
 # ============================================================
-# LOAD DATA
-# ============================================================
-
-@st.cache_data
-def load_data():
-    return pd.read_csv("wine_clustered_data.csv")
-
-
-@st.cache_data
-def load_scores():
-    return pd.read_csv("kmeans_scores.csv")
-
-
-@st.cache_resource
-def load_scaler():
-    return joblib.load("scaler.joblib")
-
-
-@st.cache_resource
-def load_metadata():
-    return joblib.load("kmeans_pca_metadata.joblib")
-
-
-df = load_data()
-scores = load_scores()
-scaler = load_scaler()
-metadata = load_metadata()
-
-feature_names = metadata["feature_names"]
-
-
-# ============================================================
-# CSS
+# STYLE
 # ============================================================
 
 st.markdown("""
 <style>
 
 .block-container {
-    padding-top: 4rem;
+    padding-top: 2rem;
     padding-bottom: 4rem;
 }
 
-.main-title {
-    font-size: 3.2rem;
-    font-weight: 800;
-    margin-bottom: 0.2rem;
-}
-
-.subtitle {
-    font-size: 1.15rem;
-    color: #94a3b8;
-    margin-bottom: 2rem;
-}
-
-.info-card {
-    padding: 18px;
-    border: 1px solid #334155;
-    border-radius: 12px;
-    margin-top: 10px;
+.hero {
+    padding: 30px;
+    border-radius: 18px;
+    border: 1px solid rgba(128,128,128,.25);
     margin-bottom: 20px;
 }
 
-.cluster-box {
-    padding: 18px;
-    border: 1px solid #334155;
+.hero-title {
+    font-size: 2.6rem;
+    font-weight: 800;
+}
+
+.hero-subtitle {
+    font-size: 1.1rem;
+    opacity: .78;
+    margin-top: 8px;
+}
+
+.workflow {
+    padding: 14px;
+    text-align: center;
+    border: 1px solid rgba(128,128,128,.25);
     border-radius: 12px;
-    margin-bottom: 15px;
+    margin-bottom: 20px;
+    font-weight: 600;
 }
 
 </style>
 """, unsafe_allow_html=True)
 
-
 # ============================================================
 # HEADER
 # ============================================================
 
+header_html = f"""<div class="hero">
+<div class="hero-title">🧩 AI Customer Clustering & PCA Analytics Dashboard</div>
+<div class="hero-subtitle">
+25,000 Customers • K-Means • PCA • Cluster Profiling • Unsupervised Learning
+</div>
+<br>
+<strong>Developed by A. Masmi</strong><br>
+jovina&#64;gmx.us<br>
+Session: {session_date} • {session_time}
+</div>"""
+
 st.markdown(
-    '<div class="main-title">Interactive K-Means + PCA Explorer</div>',
+    header_html,
     unsafe_allow_html=True
 )
 
-st.markdown(
-    '<div class="subtitle">Unsupervised Machine Learning Demo • A.Masmi</div>',
-    unsafe_allow_html=True
-)
-
-st.write(
-    """
-    Explore how K-Means clustering discovers structure in a real
-    multidimensional dataset and how PCA transforms 13 features into
-    visual 2D and 3D representations.
-    """
-)
-
+st.markdown("""
+<div class="workflow">
+Customer Data → Diagnose → Scale → Find Best K → Cluster → PCA → Profile → Predict
+</div>
+""", unsafe_allow_html=True)
 
 # ============================================================
-# TOP METRICS
+# LOAD DATA
 # ============================================================
 
-c1, c2, c3, c4 = st.columns(4)
+@st.cache_data
+def load_customer_data():
 
-c1.metric(
-    "Samples",
-    f"{metadata['samples']:,}"
+    df = pd.read_csv(
+        "customer_behavior_25000.csv"
+    )
+
+    return df
+
+
+df = load_customer_data()
+
+feature_columns = [
+    col
+    for col in df.columns
+    if col != "customer_id"
+]
+
+X = df[
+    feature_columns
+].copy()
+
+# ============================================================
+# SCALE DATA
+# ============================================================
+
+scaler = StandardScaler()
+
+X_scaled = scaler.fit_transform(
+    X
 )
 
-c2.metric(
+# ============================================================
+# K EVALUATION
+# ============================================================
+
+@st.cache_data
+def evaluate_k(data):
+
+    results = []
+
+    for k in range(2, 11):
+
+        model = KMeans(
+            n_clusters=k,
+            random_state=42,
+            n_init=15
+        )
+
+        labels = model.fit_predict(
+            data
+        )
+
+        results.append({
+            "K":
+                k,
+
+            "Inertia":
+                model.inertia_,
+
+            "Silhouette":
+                silhouette_score(
+                    data,
+                    labels,
+                    sample_size=5000,
+                    random_state=42
+                ),
+
+            "Davies-Bouldin":
+                davies_bouldin_score(
+                    data,
+                    labels
+                ),
+
+            "Calinski-Harabasz":
+                calinski_harabasz_score(
+                    data,
+                    labels
+                )
+        })
+
+    return pd.DataFrame(
+        results
+    )
+
+
+scores_df = evaluate_k(
+    X_scaled
+)
+
+best_k = int(
+    scores_df.loc[
+        scores_df["Silhouette"].idxmax(),
+        "K"
+    ]
+)
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+st.sidebar.header(
+    "⚙️ Clustering Controls"
+)
+
+selected_k = st.sidebar.slider(
+    "Number of clusters (K)",
+    min_value=2,
+    max_value=10,
+    value=best_k
+)
+
+st.sidebar.success(
+    f"Recommended K = {best_k}"
+)
+
+st.sidebar.markdown(
+    """
+### Why StandardScaler?
+
+K-Means uses Euclidean distance.
+
+Without scaling, features such as annual income could dominate
+features such as satisfaction score.
+"""
+)
+
+# ============================================================
+# K-MEANS
+# ============================================================
+
+kmeans = KMeans(
+    n_clusters=selected_k,
+    random_state=42,
+    n_init=20
+)
+
+labels = kmeans.fit_predict(
+    X_scaled
+)
+
+# ============================================================
+# METRICS
+# ============================================================
+
+silhouette = silhouette_score(
+    X_scaled,
+    labels,
+    sample_size=5000,
+    random_state=42
+)
+
+db_score = davies_bouldin_score(
+    X_scaled,
+    labels
+)
+
+ch_score = calinski_harabasz_score(
+    X_scaled,
+    labels
+)
+
+# ============================================================
+# PCA
+# ============================================================
+
+pca_full = PCA()
+
+pca_full.fit(
+    X_scaled
+)
+
+explained_variance = (
+    pca_full
+    .explained_variance_ratio_
+)
+
+cumulative_variance = np.cumsum(
+    explained_variance
+)
+
+pca = PCA(
+    n_components=3
+)
+
+pca_values = pca.fit_transform(
+    X_scaled
+)
+
+pca_df = pd.DataFrame({
+    "PC1":
+        pca_values[:, 0],
+
+    "PC2":
+        pca_values[:, 1],
+
+    "PC3":
+        pca_values[:, 2],
+
+    "Cluster":
+        labels.astype(str),
+
+    "customer_id":
+        df["customer_id"]
+})
+
+# ============================================================
+# TOP KPIs
+# ============================================================
+
+k1, k2, k3, k4, k5, k6 = st.columns(6)
+
+k1.metric(
+    "Customers",
+    f"{len(df):,}"
+)
+
+k2.metric(
     "Features",
-    metadata["features"]
+    len(feature_columns)
 )
 
-c3.metric(
-    "Best K",
-    metadata["best_k"]
+k3.metric(
+    "Selected K",
+    selected_k
 )
 
-c4.metric(
-    "Best Silhouette",
-    f"{metadata['best_silhouette']:.3f}"
+k4.metric(
+    "Silhouette",
+    f"{silhouette:.3f}"
+)
+
+k5.metric(
+    "Davies-Bouldin",
+    f"{db_score:.3f}"
+)
+
+k6.metric(
+    "PCA 3D Variance",
+    f"{pca.explained_variance_ratio_.sum():.1%}"
 )
 
 st.divider()
-
 
 # ============================================================
 # TABS
 # ============================================================
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "Interactive Clustering",
-    "PCA 2D",
-    "PCA 3D",
-    "Cluster Insights",
-    "About Project"
+tabs = st.tabs([
+    "🏠 Overview",
+    "🩺 Data Quality",
+    "🧹 Scaling",
+    "🎯 Best K",
+    "🧩 Cluster Profiles",
+    "📉 PCA Analysis",
+    "🌐 2D / 3D Explorer",
+    "📊 Evaluation",
+    "🔮 New Customer"
 ])
 
-
 # ============================================================
-# TAB 1
-# INTERACTIVE K-MEANS
+# OVERVIEW
 # ============================================================
 
-with tab1:
+with tabs[0]:
 
-    st.header("Interactive K-Means Explorer")
+    st.header(
+        "Customer Dataset Overview"
+    )
 
     st.write(
         """
-        Change the number of clusters and watch the clustering
-        metrics and PCA visualization update automatically.
-        """
+This synthetic dataset contains **25,000 customer records**
+with behavioral and commercial features designed for
+unsupervised customer segmentation.
+"""
     )
 
-    selected_k = st.slider(
-        "Choose number of clusters (K)",
-        min_value=2,
-        max_value=10,
-        value=3,
-        step=1
+    o1, o2, o3, o4 = st.columns(4)
+
+    o1.metric(
+        "Rows",
+        f"{len(df):,}"
     )
 
-    X = df[feature_names].copy()
-
-    X_scaled = scaler.transform(X)
-
-    dynamic_model = KMeans(
-        n_clusters=selected_k,
-        random_state=42,
-        n_init=20
+    o2.metric(
+        "Columns",
+        len(df.columns)
     )
 
-    dynamic_labels = dynamic_model.fit_predict(
-        X_scaled
+    o3.metric(
+        "Clustering Features",
+        len(feature_columns)
     )
 
-    dynamic_silhouette = silhouette_score(
-        X_scaled,
-        dynamic_labels
+    o4.metric(
+        "Missing Values",
+        int(
+            df
+            .isna()
+            .sum()
+            .sum()
+        )
     )
-
-    dynamic_inertia = dynamic_model.inertia_
-
-    m1, m2, m3 = st.columns(3)
-
-    m1.metric(
-        "Selected K",
-        selected_k
-    )
-
-    m2.metric(
-        "Silhouette Score",
-        f"{dynamic_silhouette:.4f}"
-    )
-
-    m3.metric(
-        "Inertia",
-        f"{dynamic_inertia:.1f}"
-    )
-
-    if selected_k == metadata["best_k"]:
-
-        st.success(
-            "This K produced the highest silhouette score "
-            "among the tested values."
-        )
-
-    else:
-
-        st.info(
-            f"The notebook selected K={metadata['best_k']} "
-            "as the best value using silhouette score."
-        )
-
-
-    # --------------------------------------------------------
-    # ELBOW + SILHOUETTE
-    # --------------------------------------------------------
-
-    graph1, graph2 = st.columns(2)
-
-    with graph1:
-
-        elbow = px.line(
-            scores,
-            x="K",
-            y="Inertia",
-            markers=True,
-            title="Elbow Method"
-        )
-
-        elbow.add_vline(
-            x=selected_k,
-            line_dash="dash"
-        )
-
-        elbow.update_xaxes(
-            dtick=1
-        )
-
-        st.plotly_chart(
-            elbow,
-            use_container_width=True
-        )
-
-
-    with graph2:
-
-        silhouette_fig = px.line(
-            scores,
-            x="K",
-            y="Silhouette_Score",
-            markers=True,
-            title="Silhouette Score by K"
-        )
-
-        silhouette_fig.add_vline(
-            x=selected_k,
-            line_dash="dash"
-        )
-
-        silhouette_fig.update_xaxes(
-            dtick=1
-        )
-
-        st.plotly_chart(
-            silhouette_fig,
-            use_container_width=True
-        )
-
-
-    # --------------------------------------------------------
-    # DYNAMIC PCA
-    # --------------------------------------------------------
 
     st.subheader(
-        f"Live PCA Cluster View — K={selected_k}"
+        "Dataset Preview"
     )
 
-    dynamic_pca = PCA(
-        n_components=2
+    st.dataframe(
+        df.head(100),
+        use_container_width=True,
+        hide_index=True
     )
 
-    X_dynamic_pca = dynamic_pca.fit_transform(
-        X_scaled
+    st.subheader(
+        "Descriptive Statistics"
     )
 
-    dynamic_df = pd.DataFrame({
-        "PC1": X_dynamic_pca[:, 0],
-        "PC2": X_dynamic_pca[:, 1],
-        "Cluster": dynamic_labels.astype(str),
-        "Original Class": df["original_class_name"]
-    })
-
-    dynamic_fig = px.scatter(
-        dynamic_df,
-        x="PC1",
-        y="PC2",
-        color="Cluster",
-        symbol="Original Class",
-        hover_data=[
-            "Cluster",
-            "Original Class"
-        ],
-        title=
-        f"K-Means Clusters Projected with PCA — K={selected_k}"
-    )
-
-    dynamic_fig.update_traces(
-        marker=dict(size=11)
-    )
-
-    dynamic_fig.update_layout(
-        height=650
-    )
-
-    st.plotly_chart(
-        dynamic_fig,
+    st.dataframe(
+        X.describe().T.round(2),
         use_container_width=True
     )
 
-
-    # --------------------------------------------------------
-    # CLUSTER SIZES
-    # --------------------------------------------------------
-
-    cluster_sizes = (
-        pd.Series(dynamic_labels)
-        .value_counts()
-        .sort_index()
-        .reset_index()
+    feature = st.selectbox(
+        "Explore a feature",
+        feature_columns
     )
 
-    cluster_sizes.columns = [
-        "Cluster",
-        "Samples"
-    ]
-
-    cluster_sizes["Cluster"] = (
-        cluster_sizes["Cluster"]
-        .astype(str)
-    )
-
-    size_fig = px.bar(
-        cluster_sizes,
-        x="Cluster",
-        y="Samples",
-        text="Samples",
-        title="Cluster Sizes"
+    fig = px.histogram(
+        df,
+        x=feature,
+        nbins=40,
+        marginal="box",
+        title=f"Distribution of {feature}"
     )
 
     st.plotly_chart(
-        size_fig,
+        fig,
         use_container_width=True
     )
 
-
 # ============================================================
-# TAB 2
-# PCA 2D
+# DATA QUALITY
 # ============================================================
 
-with tab2:
+with tabs[1]:
 
     st.header(
-        "PCA 2D Visualization"
+        "Data Quality"
     )
 
-    st.write(
-        """
-        PCA reduces the original 13-dimensional feature space
-        to two principal components so that the K-Means clusters
-        can be visualized.
-        """
-    )
+    quality_df = pd.DataFrame({
+        "Feature":
+            df.columns,
 
-    X = df[feature_names]
-    X_scaled = scaler.transform(X)
+        "Type":
+            df.dtypes.astype(str).values,
 
-    pca2 = PCA(
-        n_components=2
-    )
+        "Missing":
+            df.isna().sum().values,
 
-    X2 = pca2.fit_transform(
-        X_scaled
-    )
-
-    kmeans3 = KMeans(
-        n_clusters=metadata["best_k"],
-        random_state=42,
-        n_init=20
-    )
-
-    labels3 = kmeans3.fit_predict(
-        X_scaled
-    )
-
-    pca2_df = pd.DataFrame({
-        "PC1": X2[:, 0],
-        "PC2": X2[:, 1],
-        "Cluster": labels3.astype(str),
-        "Original Class":
-            df["original_class_name"]
+        "Unique":
+            df.nunique().values
     })
 
-    v1, v2 = st.columns(2)
-
-    v1.metric(
-        "PC1 Variance",
-        f"{pca2.explained_variance_ratio_[0] * 100:.1f}%"
+    st.dataframe(
+        quality_df,
+        use_container_width=True,
+        hide_index=True
     )
 
-    v2.metric(
-        "PC2 Variance",
-        f"{pca2.explained_variance_ratio_[1] * 100:.1f}%"
-    )
-
-    fig2d = px.scatter(
-        pca2_df,
-        x="PC1",
-        y="PC2",
-        color="Cluster",
-        symbol="Original Class",
-        hover_data=[
-            "Cluster",
-            "Original Class"
-        ],
-        title=
-        "Best K-Means Clustering in 2D PCA Space"
-    )
-
-    fig2d.update_traces(
-        marker=dict(size=12)
-    )
-
-    fig2d.update_layout(
-        height=700
-    )
-
-    st.plotly_chart(
-        fig2d,
-        use_container_width=True
-    )
-
-    st.markdown(
-        """
-        **How to read this graph**
-
-        Each point represents one wine sample.
-
-        The **color** represents the cluster discovered by K-Means.
-
-        The **symbol** represents the original known wine class.
-
-        K-Means does not use the original class labels during training.
-        """
-    )
-
-
-# ============================================================
-# TAB 3
-# PCA 3D
-# ============================================================
-
-with tab3:
-
-    st.header(
-        "Interactive 3D PCA Explorer"
-    )
-
-    st.write(
-        """
-        Drag the graph with your mouse to rotate the cluster space.
-        Scroll to zoom and hover over individual samples.
-        """
-    )
-
-    X = df[feature_names]
-    X_scaled = scaler.transform(X)
-
-    pca3 = PCA(
-        n_components=3
-    )
-
-    X3 = pca3.fit_transform(
-        X_scaled
-    )
-
-    kmeans_3d = KMeans(
-        n_clusters=metadata["best_k"],
-        random_state=42,
-        n_init=20
-    )
-
-    labels_3d = kmeans_3d.fit_predict(
-        X_scaled
-    )
-
-    pca3_df = pd.DataFrame({
-        "PC1": X3[:, 0],
-        "PC2": X3[:, 1],
-        "PC3": X3[:, 2],
-        "Cluster": labels_3d.astype(str),
-        "Original Class":
-            df["original_class_name"]
-    })
-
-    a, b, c = st.columns(3)
-
-    a.metric(
-        "PC1",
-        f"{pca3.explained_variance_ratio_[0] * 100:.1f}% variance"
-    )
-
-    b.metric(
-        "PC2",
-        f"{pca3.explained_variance_ratio_[1] * 100:.1f}% variance"
-    )
-
-    c.metric(
-        "PC3",
-        f"{pca3.explained_variance_ratio_[2] * 100:.1f}% variance"
-    )
-
-    fig3d = px.scatter_3d(
-        pca3_df,
-        x="PC1",
-        y="PC2",
-        z="PC3",
-        color="Cluster",
-        symbol="Original Class",
-        hover_data=[
-            "Cluster",
-            "Original Class"
-        ],
-        title=
-        "Rotatable 3D PCA Cluster Visualization"
-    )
-
-    fig3d.update_traces(
-        marker=dict(
-            size=6,
-            opacity=0.85
-        )
-    )
-
-    fig3d.update_layout(
-        height=800
-    )
-
-    st.plotly_chart(
-        fig3d,
-        use_container_width=True
+    st.success(
+        "No missing values detected."
     )
 
     st.info(
-        "Try clicking and dragging directly on the graph "
-        "to rotate the clusters in three dimensions."
+        """
+`customer_id` is excluded from clustering because it is an
+identifier, not a behavioral feature.
+"""
     )
 
-
 # ============================================================
-# TAB 4
-# CLUSTER INSIGHTS
+# SCALING
 # ============================================================
 
-with tab4:
+with tabs[2]:
 
     st.header(
-        "Cluster Insights"
+        "Feature Standardization"
     )
 
-    X = df[feature_names]
-    X_scaled = scaler.transform(X)
+    scaling_df = pd.DataFrame({
+        "Feature":
+            feature_columns,
 
-    final_model = KMeans(
-        n_clusters=metadata["best_k"],
-        random_state=42,
-        n_init=20
+        "Original Mean":
+            X.mean().values,
+
+        "Original Std":
+            X.std().values,
+
+        "Scaled Mean":
+            X_scaled.mean(
+                axis=0
+            ),
+
+        "Scaled Std":
+            X_scaled.std(
+                axis=0
+            )
+    })
+
+    st.dataframe(
+        scaling_df.round(3),
+        use_container_width=True,
+        hide_index=True
     )
 
-    final_labels = final_model.fit_predict(
-        X_scaled
+    selected_feature = st.selectbox(
+        "Feature to compare",
+        feature_columns,
+        key="scaling_feature"
     )
 
-    insight_df = df.copy()
-
-    insight_df["Cluster"] = (
-        final_labels.astype(str)
+    index = feature_columns.index(
+        selected_feature
     )
 
+    compare_df = pd.concat([
+        pd.DataFrame({
+            "Value":
+                X[
+                    selected_feature
+                ],
 
-    # --------------------------------------------------------
-    # CLUSTER DISTRIBUTION
-    # --------------------------------------------------------
+            "Version":
+                "Original"
+        }),
 
-    counts = (
-        insight_df["Cluster"]
+        pd.DataFrame({
+            "Value":
+                X_scaled[
+                    :,
+                    index
+                ],
+
+            "Version":
+                "Standardized"
+        })
+    ])
+
+    fig_scale = px.histogram(
+        compare_df,
+        x="Value",
+        color="Version",
+        barmode="overlay",
+        opacity=.55,
+        nbins=40,
+        title="Original vs Standardized Distribution"
+    )
+
+    st.plotly_chart(
+        fig_scale,
+        use_container_width=True
+    )
+
+# ============================================================
+# BEST K
+# ============================================================
+
+with tabs[3]:
+
+    st.header(
+        "Automatic K Selection"
+    )
+
+    st.success(
+        f"🏆 Recommended number of clusters: K = {best_k}"
+    )
+
+    st.dataframe(
+        scores_df.round(4),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    fig_sil = px.line(
+        scores_df,
+        x="K",
+        y="Silhouette",
+        markers=True,
+        title="Silhouette Score by K"
+    )
+
+    fig_sil.add_vline(
+        x=best_k,
+        line_dash="dash",
+        annotation_text=f"Best K = {best_k}"
+    )
+
+    st.plotly_chart(
+        fig_sil,
+        use_container_width=True
+    )
+
+    fig_elbow = px.line(
+        scores_df,
+        x="K",
+        y="Inertia",
+        markers=True,
+        title="Elbow Method"
+    )
+
+    st.plotly_chart(
+        fig_elbow,
+        use_container_width=True
+    )
+
+# ============================================================
+# CLUSTER PROFILES
+# ============================================================
+
+with tabs[4]:
+
+    st.header(
+        "Customer Cluster Profiles"
+    )
+
+    clustered = X.copy()
+
+    clustered[
+        "Cluster"
+    ] = labels
+
+    cluster_counts = (
+        clustered[
+            "Cluster"
+        ]
         .value_counts()
         .sort_index()
         .reset_index()
     )
 
-    counts.columns = [
+    cluster_counts.columns = [
         "Cluster",
-        "Samples"
+        "Customers"
     ]
 
-    fig_counts = px.pie(
-        counts,
-        names="Cluster",
-        values="Samples",
-        hole=0.45,
-        title="Cluster Distribution"
+    fig_counts = px.bar(
+        cluster_counts,
+        x="Cluster",
+        y="Customers",
+        title="Customers per Cluster"
     )
 
     st.plotly_chart(
@@ -644,218 +662,385 @@ with tab4:
         use_container_width=True
     )
 
-
-    # --------------------------------------------------------
-    # ORIGINAL CLASS VS CLUSTER
-    # --------------------------------------------------------
-
-    st.subheader(
-        "K-Means Clusters vs Original Classes"
+    profiles = (
+        clustered
+        .groupby(
+            "Cluster"
+        )
+        .mean()
+        .round(2)
     )
 
-    comparison = pd.crosstab(
-        insight_df["original_class_name"],
-        insight_df["Cluster"]
+    st.subheader(
+        "Mean Customer Profile"
     )
 
     st.dataframe(
-        comparison,
+        profiles,
         use_container_width=True
     )
 
-    heatmap = go.Figure(
-        data=go.Heatmap(
-            z=comparison.values,
-            x=[
-                f"Cluster {x}"
-                for x in comparison.columns
-            ],
-            y=comparison.index,
-            text=comparison.values,
-            texttemplate="%{text}"
-        )
+    profile_feature = st.selectbox(
+        "Compare clusters by feature",
+        feature_columns,
+        key="profile_feature"
     )
 
-    heatmap.update_layout(
-        title=
-        "Original Wine Classes vs Discovered Clusters",
-        height=500
-    )
-
-    st.plotly_chart(
-        heatmap,
-        use_container_width=True
-    )
-
-
-    # --------------------------------------------------------
-    # FEATURE PROFILES
-    # --------------------------------------------------------
-
-    st.subheader(
-        "Cluster Feature Profiles"
-    )
-
-    selected_feature = st.selectbox(
-        "Choose a feature to compare",
-        feature_names
-    )
-
-    feature_summary = (
-        insight_df
-        .groupby("Cluster")[
-            selected_feature
+    profile_plot = (
+        clustered
+        .groupby(
+            "Cluster"
+        )[
+            profile_feature
         ]
         .mean()
         .reset_index()
     )
 
-    feature_fig = px.bar(
-        feature_summary,
+    fig_profile = px.bar(
+        profile_plot,
         x="Cluster",
-        y=selected_feature,
-        text_auto=".2f",
-        title=
-        f"Average {selected_feature} by Cluster"
+        y=profile_feature,
+        title=f"Cluster Comparison — {profile_feature}"
     )
 
     st.plotly_chart(
-        feature_fig,
+        fig_profile,
         use_container_width=True
     )
 
+# ============================================================
+# PCA
+# ============================================================
 
-    # --------------------------------------------------------
-    # DATA EXPLORER
-    # --------------------------------------------------------
+with tabs[5]:
 
-    st.subheader(
-        "Explore the Dataset"
+    st.header(
+        "Principal Component Analysis"
     )
 
-    selected_cluster = st.selectbox(
-        "Filter by cluster",
-        ["All"] +
-        sorted(
-            insight_df["Cluster"]
-            .unique()
-            .tolist()
+    variance_df = pd.DataFrame({
+        "Component": [
+            f"PC{i+1}"
+            for i in range(
+                len(
+                    explained_variance
+                )
+            )
+        ],
+
+        "Explained Variance":
+            explained_variance,
+
+        "Cumulative Variance":
+            cumulative_variance
+    })
+
+    p1, p2, p3 = st.columns(3)
+
+    p1.metric(
+        "PC1 Variance",
+        f"{explained_variance[0]:.1%}"
+    )
+
+    p2.metric(
+        "PC1 + PC2",
+        f"{cumulative_variance[1]:.1%}"
+    )
+
+    p3.metric(
+        "PC1 + PC2 + PC3",
+        f"{cumulative_variance[2]:.1%}"
+    )
+
+    fig_var = px.bar(
+        variance_df,
+        x="Component",
+        y="Explained Variance",
+        title="Explained Variance by Principal Component"
+    )
+
+    st.plotly_chart(
+        fig_var,
+        use_container_width=True
+    )
+
+    fig_cumulative = px.line(
+        variance_df,
+        x="Component",
+        y="Cumulative Variance",
+        markers=True,
+        title="Cumulative Explained Variance"
+    )
+
+    fig_cumulative.add_hline(
+        y=.90,
+        line_dash="dash",
+        annotation_text="90%"
+    )
+
+    st.plotly_chart(
+        fig_cumulative,
+        use_container_width=True
+    )
+
+    components_90 = int(
+        np.argmax(
+            cumulative_variance
+            >= .90
         )
+        + 1
     )
 
-    if selected_cluster == "All":
+    st.success(
+        f"{components_90} principal components explain at least 90% of the variance."
+    )
 
-        filtered_df = insight_df
+# ============================================================
+# 2D / 3D
+# ============================================================
+
+with tabs[6]:
+
+    st.header(
+        "Interactive PCA Cluster Explorer"
+    )
+
+    view = st.radio(
+        "View",
+        [
+            "2D PCA",
+            "3D PCA"
+        ],
+        horizontal=True
+    )
+
+    sample_size = st.slider(
+        "Points to display",
+        min_value=1000,
+        max_value=10000,
+        value=5000,
+        step=1000
+    )
+
+    plot_df = pca_df.sample(
+        sample_size,
+        random_state=42
+    )
+
+    if view == "2D PCA":
+
+        fig_2d = px.scatter(
+            plot_df,
+            x="PC1",
+            y="PC2",
+            color="Cluster",
+            hover_data=[
+                "customer_id"
+            ],
+            title="Customer Segments — PCA 2D"
+        )
+
+        st.plotly_chart(
+            fig_2d,
+            use_container_width=True
+        )
 
     else:
 
-        filtered_df = insight_df[
-            insight_df["Cluster"]
-            == selected_cluster
-        ]
+        fig_3d = px.scatter_3d(
+            plot_df,
+            x="PC1",
+            y="PC2",
+            z="PC3",
+            color="Cluster",
+            hover_data=[
+                "customer_id"
+            ],
+            title="Customer Segments — PCA 3D"
+        )
 
-    st.write(
-        f"Samples shown: {len(filtered_df)}"
-    )
-
-    st.dataframe(
-        filtered_df,
-        use_container_width=True,
-        hide_index=True
-    )
-
+        st.plotly_chart(
+            fig_3d,
+            use_container_width=True
+        )
 
 # ============================================================
-# TAB 5
-# ABOUT
+# EVALUATION
 # ============================================================
 
-with tab5:
+with tabs[7]:
 
     st.header(
-        "About This Project"
+        "Clustering Evaluation"
     )
 
-    st.markdown(
-        f"""
-        ### Project Goal
+    e1, e2, e3 = st.columns(3)
 
-        Demonstrate an end-to-end unsupervised machine-learning
-        workflow using K-Means clustering and Principal Component
-        Analysis.
+    e1.metric(
+        "Silhouette Score",
+        f"{silhouette:.4f}"
+    )
 
-        ### Dataset
+    e2.metric(
+        "Davies-Bouldin",
+        f"{db_score:.4f}"
+    )
 
-        **scikit-learn Wine dataset**
+    e3.metric(
+        "Calinski-Harabasz",
+        f"{ch_score:.1f}"
+    )
 
-        **Samples:** {metadata['samples']}
+    st.markdown("""
+### Metric interpretation
 
-        **Numerical features:** {metadata['features']}
+**Silhouette Score**  
+Higher is better. Measures cluster cohesion and separation.
 
-        The dataset contains chemical measurements from wine
-        samples.
+**Davies-Bouldin Index**  
+Lower is better.
 
-        ### K-Means
+**Calinski-Harabasz Score**  
+Higher generally indicates better-defined clusters.
+""")
 
-        K values from **2 through 10** were evaluated.
+# ============================================================
+# NEW CUSTOMER
+# ============================================================
 
-        The highest silhouette score was:
+with tabs[8]:
 
-        **{metadata['best_silhouette']:.4f} at K={metadata['best_k']}**
+    st.header(
+        "New Customer Cluster Prediction"
+    )
 
-        ### PCA
-
-        PCA was used to reduce the original 13-dimensional
-        feature space.
-
-        **{metadata['pcs_for_90_percent_variance']} principal components**
-        preserve at least **90% of the variance**.
-
-        Two and three principal components are used separately
-        for visualization.
-
-        ### Technologies
-
-        **Python**
-
-        **pandas**
-
-        **NumPy**
-
-        **scikit-learn**
-
-        **K-Means**
-
-        **PCA**
-
-        **Plotly**
-
-        **Streamlit**
-
-        **JupyterLab**
-
-        **Git & GitHub**
-
-        ### What This Demo Shows
-
-        - Unsupervised learning
-        - Feature standardization
-        - K-Means clustering
-        - Elbow method
-        - Silhouette analysis
-        - Dimensionality reduction
-        - PCA explained variance
-        - Interactive 2D visualization
-        - Interactive 3D visualization
-        - Cluster interpretation
-
-        ### Portfolio Project
-
-        Developed by **A.Masmi** as an interactive
-        Machine Learning and Data Science portfolio project.
+    st.write(
         """
+Enter behavioral information for a new customer.
+The same StandardScaler is applied before K-Means assigns
+the customer to the nearest cluster.
+"""
     )
 
+    inputs = {}
+
+    columns = st.columns(
+        3
+    )
+
+    for i, feature_name in enumerate(
+        feature_columns
+    ):
+
+        with columns[
+            i % 3
+        ]:
+
+            inputs[
+                feature_name
+            ] = st.number_input(
+                feature_name
+                .replace(
+                    "_",
+                    " "
+                )
+                .title(),
+
+                value=float(
+                    X[
+                        feature_name
+                    ]
+                    .median()
+                ),
+
+                format="%.2f"
+            )
+
+    new_customer = pd.DataFrame(
+        [inputs]
+    )
+
+    new_scaled = scaler.transform(
+        new_customer
+    )
+
+    cluster_prediction = int(
+        kmeans.predict(
+            new_scaled
+        )[0]
+    )
+
+    distances = kmeans.transform(
+        new_scaled
+    )[0]
+
+    n1, n2 = st.columns(
+        2
+    )
+
+    n1.metric(
+        "Assigned Cluster",
+        cluster_prediction
+    )
+
+    n2.metric(
+        "Distance to Centroid",
+        f"{distances[cluster_prediction]:.3f}"
+    )
+
+    distance_df = pd.DataFrame({
+        "Cluster":
+            [
+                str(i)
+                for i in range(
+                    selected_k
+                )
+            ],
+
+        "Distance":
+            distances
+    })
+
+    fig_distance = px.bar(
+        distance_df,
+        x="Cluster",
+        y="Distance",
+        title="Distance to Cluster Centroids"
+    )
+
+    st.plotly_chart(
+        fig_distance,
+        use_container_width=True
+    )
+
+# ============================================================
+# RECOMMENDATION
+# ============================================================
+
+st.divider()
+
+recommended_row = scores_df.loc[
+    scores_df[
+        "Silhouette"
+    ].idxmax()
+]
+
+st.subheader(
+    "🤖 Clustering Recommendation"
+)
+
+st.success(
+    f"""
+Recommended configuration: **K = {best_k}**
+
+K={best_k} achieved the highest Silhouette Score
+(**{recommended_row['Silhouette']:.3f}**) among K=2 to K=10.
+
+The dashboard still allows users to change K manually and
+compare the clustering results.
+"""
+)
 
 # ============================================================
 # FOOTER
@@ -863,15 +1048,16 @@ with tab5:
 
 st.divider()
 
+footer_html = f"""<div style="text-align:center; padding:20px; opacity:.75; line-height:1.7;">
+<strong>AI Customer Clustering & PCA Analytics Dashboard</strong><br>
+Developed by A. Masmi • jovina&#64;gmx.us<br>
+25,000 Customers • K-Means • PCA • StandardScaler • Plotly • Streamlit<br>
+Session: {session_date} • {session_time}<br>
+<a href="https://issam2023.github.io/masmi-portfolio/#projects"
+target="_blank">AI & Data Science Portfolio</a>
+</div>"""
+
 st.markdown(
-    """
-    <div style="
-        text-align:center;
-        color:#94a3b8;
-        padding:10px;
-    ">
-        A.Masmi • Machine Learning & Data Science Portfolio
-    </div>
-    """,
+    footer_html,
     unsafe_allow_html=True
 )
